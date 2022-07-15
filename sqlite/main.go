@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -10,19 +11,22 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/t-mutaguchi-10antz/benchmark/sqlite/boiler"
+	"github.com/volatiletech/null/v8"
 )
 
 const (
-	RecordCount int = 100000
-	LoadCount   int = 100000
+	dbPath      string = "./sqlite/test.db"
+	RecordCount int    = 100000
+	LoadCount   int    = 100000
 )
 
 var db *sql.DB
 var text string
 
-var FooMap = map[string]Foo{}
+var Heap = map[string]Sample{}
 
-type Foo struct {
+type Sample struct {
 	ID     string
 	Field1 string
 	Field2 string
@@ -35,49 +39,53 @@ func main() {
 		panic(err)
 	}
 
-	startMeasure("load from heap memory")
-	if err := loadFromHeapMemory(); err != nil {
+	startMeasure("heap memory")
+	if err := load1(); err != nil {
 		panic(err)
 	}
 	endMeasure()
 
-	startMeasure("load from sqlite memory ( not scan )")
-	if err := loadFromSQLiteMemoryNotScan(); err != nil {
+	startMeasure("database/sql")
+	if err := load2(); err != nil {
 		panic(err)
 	}
 	endMeasure()
 
-	startMeasure("load from sqlite memory ( scan )")
-	if err := loadFromSQLiteMemoryScan(); err != nil {
+	startMeasure("volatiletech/sqlboiler ( ORM )")
+	if err := load3(); err != nil {
 		panic(err)
 	}
 	endMeasure()
 }
 
-func loadFromHeapMemory() error {
+func load1() error {
 	for i := 1; i <= LoadCount; i++ {
 		id := strconv.Itoa(i)
-		_ = FooMap[id]
+		_ = Heap[id]
 	}
 	return nil
 }
 
-func loadFromSQLiteMemoryNotScan() error {
-	query := "SELECT * FROM `Foo` WHERE `ID` = ?"
+func load2() error {
+	query := "SELECT * FROM `Sample` WHERE `ID` = ?"
 	for i := 1; i <= LoadCount; i++ {
 		id := strconv.Itoa(i)
-		_ = db.QueryRow(query, id)
+		var sample Sample
+		_ = db.QueryRow(query, id).Scan(&sample.ID, &sample.Field1, &sample.Field2, &sample.Field3)
 	}
 	return nil
 }
 
-func loadFromSQLiteMemoryScan() error {
-	query := "SELECT * FROM `Foo` WHERE `ID` = ?"
+func load3() error {
+	ctx := context.Background()
+
 	for i := 1; i <= LoadCount; i++ {
 		id := strconv.Itoa(i)
-		var foo Foo
-		_ = db.QueryRow(query, id).Scan(&foo.ID, &foo.Field1, &foo.Field2, &foo.Field3)
+		if _, err := boiler.FindSample(ctx, db, null.NewString(id, true)); err != nil {
+			panic(err)
+		}
 	}
+
 	return nil
 }
 
@@ -90,39 +98,37 @@ func startMeasure(v string) {
 
 func endMeasure() {
 	n := float64(time.Since(t).Seconds()) / float64(LoadCount)
-	log.Printf("[%s] %.9f seconds per load", text, n)
+	log.Printf("%.9f sec/load [%s]", n, text)
 }
 
 func setup() error {
-	dbPath := "./sqlite/test.db"
-
-	if err := os.Remove(dbPath); err != nil {
-		return fmt.Errorf("failed to remove db file: %v", err)
-	}
-
 	if v, err := sql.Open("sqlite3", fmt.Sprintf("%s?cache=shared&mode=memory", dbPath)); err != nil {
 		return fmt.Errorf("failed to open: %w", err)
 	} else {
 		db = v
 	}
 
-	if _, err := db.Exec("CREATE TABLE `Foo` (`ID` String PRIMARY KEY, `Field1` String, `Field2` String, `Field3` String)"); err != nil {
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		return nil
+	}
+
+	if _, err := db.Exec("CREATE TABLE `Sample` (`ID` String PRIMARY KEY, `Field1` String, `Field2` String, `Field3` String)"); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	values := []string{}
 	for i := 1; i <= RecordCount; i++ {
 		id := strconv.Itoa(i)
-		foo := Foo{
+		s := Sample{
 			ID:     id,
 			Field1: fmt.Sprintf("foo-%d", i),
-			Field2: fmt.Sprintf("foo-%d", i),
-			Field3: fmt.Sprintf("foo-%d", i),
+			Field2: fmt.Sprintf("bar-%d", i),
+			Field3: fmt.Sprintf("baz-%d", i),
 		}
-		FooMap[id] = foo
-		values = append(values, fmt.Sprintf("('%s', '%s', '%s', '%s')", foo.ID, foo.Field1, foo.Field2, foo.Field3))
+		Heap[id] = s
+		values = append(values, fmt.Sprintf("('%s', '%s', '%s', '%s')", s.ID, s.Field1, s.Field2, s.Field3))
 	}
-	if _, err := db.Exec(fmt.Sprintf("INSERT INTO `Foo` (`ID`, `Field1`, `Field2`, `Field3`) VALUES %s", strings.Join(values, ","))); err != nil {
+	if _, err := db.Exec(fmt.Sprintf("INSERT INTO `Sample` (`ID`, `Field1`, `Field2`, `Field3`) VALUES %s", strings.Join(values, ","))); err != nil {
 		return fmt.Errorf("failed to insert: %w", err)
 	}
 
