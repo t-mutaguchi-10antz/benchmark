@@ -34,7 +34,6 @@ type Sample struct {
 }
 
 func main() {
-	log.Println("setup...")
 	if err := setup(); err != nil {
 		panic(err)
 	}
@@ -108,12 +107,16 @@ func setup() error {
 		db = v
 	}
 
+	gen := true
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		return nil
+		log.Printf("!!!!!!!!!!!!!!!!!")
+		gen = false
 	}
 
-	if _, err := db.Exec("CREATE TABLE `Sample` (`ID` String PRIMARY KEY, `Field1` String, `Field2` String, `Field3` String)"); err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
+	if gen {
+		if _, err := db.Exec("CREATE TABLE `Sample` (`ID` String PRIMARY KEY, `Field1` String, `Field2` String, `Field3` String)"); err != nil {
+			return fmt.Errorf("failed to create table: %w", err)
+		}
 	}
 
 	values := []string{}
@@ -128,8 +131,11 @@ func setup() error {
 		Heap[id] = s
 		values = append(values, fmt.Sprintf("('%s', '%s', '%s', '%s')", s.ID, s.Field1, s.Field2, s.Field3))
 	}
-	if _, err := db.Exec(fmt.Sprintf("INSERT INTO `Sample` (`ID`, `Field1`, `Field2`, `Field3`) VALUES %s", strings.Join(values, ","))); err != nil {
-		return fmt.Errorf("failed to insert: %w", err)
+
+	if gen {
+		if _, err := db.Exec(fmt.Sprintf("INSERT INTO `Sample` (`ID`, `Field1`, `Field2`, `Field3`) VALUES %s", strings.Join(values, ","))); err != nil {
+			return fmt.Errorf("failed to insert: %w", err)
+		}
 	}
 
 	return nil
