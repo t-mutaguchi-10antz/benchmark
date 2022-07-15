@@ -1,0 +1,8 @@
+add-enum-types = true
+no-tests = true
+output = "sqlite/boiler"
+pkgname = "boiler"
+wipe = true
+
+[sqlite3]
+dbname = "./sqlite/test.db"
