@@ -109,7 +109,6 @@ func setup() error {
 
 	gen := true
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		log.Printf("!!!!!!!!!!!!!!!!!")
 		gen = false
 	}
 
